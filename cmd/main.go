@@ -17,8 +17,7 @@ func main() {
 	var err error
 
 	// TODO: input file path
-	// filePath := "/mnt/c/Users/jkwok/Documents/misc/warframe/sc_test.png"
-	filePath := "/mnt/c/Users/jkwok/Documents/misc/warframe/reward_sample.png"
+	filePath := "/mnt/c/Users/jkwok/Documents/misc/warframe/reward_screen.png"
 	img := gocv.IMRead(filePath, gocv.IMReadColor)
 	if img.Empty() {
 		fmt.Printf("couldnt read image")
@@ -141,8 +140,13 @@ func main() {
 
 		// TODO: can't find a way to batch multiply queries into 1 request
 		for i := range rewardStrings {
+			if rewardStrings[i] == "" {
+				fmt.Printf("cant read reward%v\n", i)
+				continue
+			}
+
 			// skip formas
-			if rewardStrings[i] == "forma_blueprint" {
+			if strings.Contains(rewardStrings[i], "forma_") {
 				fmt.Printf("%v: 0\n", rewardStrings[i])
 				continue
 			}
@@ -152,7 +156,7 @@ func main() {
 			var req *http.Request
 			req, err = http.NewRequest("GET", reqURL, nil)
 			if err != nil {
-				fmt.Printf("couldn't create request: %v", err)
+				fmt.Printf("couldn't create request %v: %v", rewardStrings[i], err)
 				return
 			}
 
@@ -163,22 +167,28 @@ func main() {
 			var resp *http.Response
 			resp, err = wfmClient.Do(req)
 			if err != nil {
-				fmt.Printf("couldn't make request: %v", err)
+				fmt.Printf("couldn't make request %v: %v", rewardStrings[i], err)
 				return
 			}
 			defer resp.Body.Close()
 
+			switch resp.StatusCode {
+			case 404:
+				fmt.Printf("%v: INVALID\n", rewardStrings[i])
+				continue
+			}
+
 			// parse response
 			respBody, err := io.ReadAll(resp.Body)
 			if err != nil {
-				fmt.Printf("couldn't read response body: %v", err)
+				fmt.Printf("couldn't read response body %v: %v", rewardStrings[i], err)
 				return
 			}
 
 			var topOrdersResponse TopOrdersResponse
 			err = json.Unmarshal(respBody, &topOrdersResponse)
 			if err != nil {
-				fmt.Printf("couldn't unmarshal response body: %v", err)
+				fmt.Printf("couldn't unmarshal response body %v: %v", rewardStrings[i], err)
 				return
 			}
 

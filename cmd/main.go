@@ -6,7 +6,9 @@ import (
 	"image"
 	"io"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/otiai10/gosseract/v2"
 	"gocv.io/x/gocv"
@@ -17,8 +19,7 @@ func main() {
 	var err error
 
 	// TODO: input file path
-	// filePath := "/mnt/c/Users/jkwok/Documents/misc/warframe/sc_test.png"
-	filePath := "/mnt/c/Users/jkwok/Documents/misc/warframe/reward_sample.png"
+	filePath := "/mnt/c/Users/jkwok/Documents/misc/warframe/reward_screen.png"
 	img := gocv.IMRead(filePath, gocv.IMReadColor)
 	if img.Empty() {
 		fmt.Printf("couldnt read image")
@@ -26,10 +27,43 @@ func main() {
 	}
 	defer img.Close()
 
-	window := gocv.NewWindow("Hello")
-	defer window.Close()
+	var prevImageMeta os.FileInfo
+	prevImageMeta, err = os.Stat(filePath)
+	if err != nil {
+		fmt.Printf("couldn't get initial image metadata: %v", err)
+		return
+	}
+
+	// window := gocv.NewWindow("Hello")
+	// defer window.Close()
+
+	// // open the window?
+	// window.WaitKey(100)
 
 	for {
+		// only proceed if image file has changed
+		var imageMeta os.FileInfo
+		imageMeta, err = os.Stat(filePath)
+		if err != nil {
+			fmt.Printf("couldn't get image metadata: %v", err)
+			return
+		}
+
+		if imageMeta.ModTime().Equal(prevImageMeta.ModTime()) {
+			continue
+		}
+
+		// file write is not atomic, so wait a sec for it to finish
+		time.Sleep(500 * time.Millisecond)
+
+		imageMeta, err = os.Stat(filePath)
+		if err != nil {
+			fmt.Printf("couldn't get image metadata: %v", err)
+			return
+		}
+
+		prevImageMeta = imageMeta
+
 		// open image
 		img = gocv.IMRead(filePath, gocv.IMReadColor)
 		if img.Empty() {
@@ -45,7 +79,7 @@ func main() {
 		// filter images to ease text processing
 
 		// build text color mask
-		// hsv images are better for color differentiation
+		// HSV images are better for color differentiation
 		hsvImg := gocv.NewMat()
 		defer hsvImg.Close()
 		err = gocv.CvtColor(img, &hsvImg, gocv.ColorRGBToHSV)
@@ -62,7 +96,7 @@ func main() {
 		colorMask := gocv.NewMat()
 		defer colorMask.Close()
 
-		// color bounds are BGR but in terms of the hsv-colored image
+		// color bounds are BGR but in terms of the HSV-colored image
 		// why?
 		err = gocv.InRangeWithScalar(hsvImg, gocv.NewScalar(90.0, 110.0, 180.0, 0.0), gocv.NewScalar(97.0, 118.0, 190.0, 0.0), &colorMask)
 		if err != nil {
@@ -76,7 +110,6 @@ func main() {
 		// window.WaitKey(0)
 
 		// don't actually care about the color, so we can just continue processing on the mask itself
-
 		// filteredImg := gocv.NewMat()
 		// defer filteredImg.Close()
 		// err = gocv.BitwiseAnd(img, colorMask, &filteredImg)
@@ -95,6 +128,7 @@ func main() {
 		rewardsCount := 4
 		rewards := make([]gocv.Mat, rewardsCount)
 		// 1920*1080
+		// TODO: variable window dimensions
 		startX := 476
 		startY := 408
 		rewardSizeX := 242
@@ -141,8 +175,13 @@ func main() {
 
 		// TODO: can't find a way to batch multiply queries into 1 request
 		for i := range rewardStrings {
+			if rewardStrings[i] == "" {
+				fmt.Printf("cant read reward%v\n", i)
+				continue
+			}
+
 			// skip formas
-			if rewardStrings[i] == "forma_blueprint" {
+			if strings.Contains(rewardStrings[i], "forma_") {
 				fmt.Printf("%v: 0\n", rewardStrings[i])
 				continue
 			}
@@ -152,7 +191,7 @@ func main() {
 			var req *http.Request
 			req, err = http.NewRequest("GET", reqURL, nil)
 			if err != nil {
-				fmt.Printf("couldn't create request: %v", err)
+				fmt.Printf("couldn't create request %v: %v", rewardStrings[i], err)
 				return
 			}
 
@@ -163,22 +202,28 @@ func main() {
 			var resp *http.Response
 			resp, err = wfmClient.Do(req)
 			if err != nil {
-				fmt.Printf("couldn't make request: %v", err)
+				fmt.Printf("couldn't make request %v: %v", rewardStrings[i], err)
 				return
 			}
 			defer resp.Body.Close()
 
+			switch resp.StatusCode {
+			case 404:
+				fmt.Printf("%v: INVALID\n", rewardStrings[i])
+				continue
+			}
+
 			// parse response
 			respBody, err := io.ReadAll(resp.Body)
 			if err != nil {
-				fmt.Printf("couldn't read response body: %v", err)
+				fmt.Printf("couldn't read response body %v: %v", rewardStrings[i], err)
 				return
 			}
 
 			var topOrdersResponse TopOrdersResponse
 			err = json.Unmarshal(respBody, &topOrdersResponse)
 			if err != nil {
-				fmt.Printf("couldn't unmarshal response body: %v", err)
+				fmt.Printf("couldn't unmarshal response body %v: %v", rewardStrings[i], err)
 				return
 			}
 
@@ -196,7 +241,7 @@ func main() {
 		}
 
 		// wait for key press to refresh
-		window.WaitKey(0)
+		// window.WaitKey(0)
 	}
 }
 

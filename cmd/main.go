@@ -6,7 +6,9 @@ import (
 	"image"
 	"io"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/otiai10/gosseract/v2"
 	"gocv.io/x/gocv"
@@ -25,10 +27,43 @@ func main() {
 	}
 	defer img.Close()
 
-	window := gocv.NewWindow("Hello")
-	defer window.Close()
+	var prevImageMeta os.FileInfo
+	prevImageMeta, err = os.Stat(filePath)
+	if err != nil {
+		fmt.Printf("couldn't get initial image metadata: %v", err)
+		return
+	}
+
+	// window := gocv.NewWindow("Hello")
+	// defer window.Close()
+
+	// // open the window?
+	// window.WaitKey(100)
 
 	for {
+		// only proceed if image file has changed
+		var imageMeta os.FileInfo
+		imageMeta, err = os.Stat(filePath)
+		if err != nil {
+			fmt.Printf("couldn't get image metadata: %v", err)
+			return
+		}
+
+		if imageMeta.ModTime().Equal(prevImageMeta.ModTime()) {
+			continue
+		}
+
+		// file write is not atomic, so wait a sec for it to finish
+		time.Sleep(500 * time.Millisecond)
+
+		imageMeta, err = os.Stat(filePath)
+		if err != nil {
+			fmt.Printf("couldn't get image metadata: %v", err)
+			return
+		}
+
+		prevImageMeta = imageMeta
+
 		// open image
 		img = gocv.IMRead(filePath, gocv.IMReadColor)
 		if img.Empty() {
@@ -44,7 +79,7 @@ func main() {
 		// filter images to ease text processing
 
 		// build text color mask
-		// hsv images are better for color differentiation
+		// HSV images are better for color differentiation
 		hsvImg := gocv.NewMat()
 		defer hsvImg.Close()
 		err = gocv.CvtColor(img, &hsvImg, gocv.ColorRGBToHSV)
@@ -61,7 +96,7 @@ func main() {
 		colorMask := gocv.NewMat()
 		defer colorMask.Close()
 
-		// color bounds are BGR but in terms of the hsv-colored image
+		// color bounds are BGR but in terms of the HSV-colored image
 		// why?
 		err = gocv.InRangeWithScalar(hsvImg, gocv.NewScalar(90.0, 110.0, 180.0, 0.0), gocv.NewScalar(97.0, 118.0, 190.0, 0.0), &colorMask)
 		if err != nil {
@@ -75,7 +110,6 @@ func main() {
 		// window.WaitKey(0)
 
 		// don't actually care about the color, so we can just continue processing on the mask itself
-
 		// filteredImg := gocv.NewMat()
 		// defer filteredImg.Close()
 		// err = gocv.BitwiseAnd(img, colorMask, &filteredImg)
@@ -94,6 +128,7 @@ func main() {
 		rewardsCount := 4
 		rewards := make([]gocv.Mat, rewardsCount)
 		// 1920*1080
+		// TODO: variable window dimensions
 		startX := 476
 		startY := 408
 		rewardSizeX := 242
@@ -206,7 +241,7 @@ func main() {
 		}
 
 		// wait for key press to refresh
-		window.WaitKey(0)
+		// window.WaitKey(0)
 	}
 }
 

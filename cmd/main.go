@@ -53,7 +53,7 @@ func main() {
 		}
 
 		if imageMeta.ModTime().Equal(prevImageMeta.ModTime()) {
-			// continue
+			continue
 		}
 
 		// file write is not atomic, so wait a sec for it to finish

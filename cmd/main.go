@@ -3,13 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"image"
 	"io"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/JK-9797/wf-relic-prime-check/imageprocessing"
 	"github.com/otiai10/gosseract/v2"
 	"gocv.io/x/gocv"
 )
@@ -17,6 +17,9 @@ import (
 func main() {
 	// TODO:
 	var err error
+
+	tesseractClient := gosseract.NewClient()
+	defer tesseractClient.Close()
 
 	// TODO: input file path
 	filePath := "/mnt/c/Users/jkwok/Documents/misc/warframe/reward_screen.png"
@@ -77,95 +80,22 @@ func main() {
 		// window.WaitKey(0)
 
 		// filter images to ease text processing
-
-		// build text color mask
-		// HSV images are better for color differentiation
-		hsvImg := gocv.NewMat()
-		defer hsvImg.Close()
-		err = gocv.CvtColor(img, &hsvImg, gocv.ColorRGBToHSV)
+		colorMask, err := imageprocessing.MakeColorMask(img)
 		if err != nil {
-			fmt.Printf("couldn't convert image to hsv: %v", err)
 			return
 		}
-
-		// // TODO: REMOVE DEBUG
-		// window.IMShow(hsvImg)
-		// // wait for key press
-		// window.WaitKey(0)
-
-		colorMask := gocv.NewMat()
 		defer colorMask.Close()
 
-		// color bounds are BGR but in terms of the HSV-colored image
-		// why?
-		err = gocv.InRangeWithScalar(hsvImg, gocv.NewScalar(90.0, 110.0, 180.0, 0.0), gocv.NewScalar(97.0, 118.0, 190.0, 0.0), &colorMask)
+		// figure out how many reward choices there are
+		rewards, err := imageprocessing.GetRewardBoxes(colorMask)
 		if err != nil {
-			fmt.Printf("couldn't create color mask: %v", err)
 			return
-		}
-
-		// // TODO: REMOVE DEBUG
-		// window.IMShow(colorMask)
-		// // wait for key press
-		// window.WaitKey(0)
-
-		// don't actually care about the color, so we can just continue processing on the mask itself
-		// filteredImg := gocv.NewMat()
-		// defer filteredImg.Close()
-		// err = gocv.BitwiseAnd(img, colorMask, &filteredImg)
-		// if err != nil {
-		// 	fmt.Printf("couldn't apply mask: %v", err)
-		// 	return
-		// }
-
-		// // TODO: REMOVE DEBUG
-		// window.IMShow(filteredImg)
-		// // wait for key press
-		// window.WaitKey(0)
-
-		// subdivide image into reward choices
-		// TODO: how to detect <4 players? line detection -> rectangle detection
-		rewardsCount := 4
-		rewards := make([]gocv.Mat, rewardsCount)
-		// 1920*1080
-		// TODO: variable window dimensions
-		startX := 476
-		startY := 408
-		rewardSizeX := 242
-		rewardSizeY := 54
-		for i := range rewards {
-			rewardStartX := startX + i*rewardSizeX
-			rewards[i] = colorMask.Region(image.Rect(rewardStartX, startY, rewardStartX+rewardSizeX, startY+rewardSizeY))
-		}
-
-		// convert mat to []byte
-		rewardByteSlices := make([][]byte, len(rewards))
-		for i := range rewardByteSlices {
-			rewardBytes, _ := gocv.IMEncode(".png", rewards[i])
-			rewardByteSlices[i] = rewardBytes.GetBytes()
 		}
 
 		// get string for each reward choice
-		tesseractClient := gosseract.NewClient()
-		defer tesseractClient.Close()
-
-		rewardStrings := make([]string, len(rewards))
-		for i := range rewardByteSlices {
-			tesseractClient.SetImageFromBytes(rewardByteSlices[i])
-			rewardStrings[i], err = tesseractClient.Text()
-			if err != nil {
-				fmt.Printf("couldn't read text: %v", err)
-				return
-			}
-
-			// format string for market request
-			rewardStrings[i] = strings.ToLower(rewardStrings[i])
-			rewardStrings[i] = strings.ReplaceAll(rewardStrings[i], "\n", " ")
-			rewardStrings[i] = strings.ReplaceAll(rewardStrings[i], " ", "_")
-
-			// // TODO: REMOVE DEBUG
-			// fmt.Printf("----- REWARD %v -----\n", i)
-			// fmt.Println(rewardStrings[i])
+		rewardStrings, err := imageprocessing.ReadTextBoxes(rewards, tesseractClient)
+		if err != nil {
+			return
 		}
 
 		fmt.Printf("\n\n")

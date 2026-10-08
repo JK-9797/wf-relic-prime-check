@@ -79,21 +79,13 @@ func main() {
 		// // wait for key press
 		// window.WaitKey(0)
 
-		// filter images to ease text processing
-		colorMask, err := imageprocessing.MakeColorMask(img)
-		if err != nil {
-			return
-		}
-		defer colorMask.Close()
-
-		// figure out how many reward choices there are
-		rewards, err := imageprocessing.GetRewardBoxes(colorMask)
+		rewardImages, err := imageprocessing.FindRewards(img)
 		if err != nil {
 			return
 		}
 
 		// get string for each reward choice
-		rewardStrings, err := imageprocessing.ReadTextBoxes(rewards, tesseractClient)
+		rewardStrings, err := imageprocessing.ReadTextBoxes(rewardImages, tesseractClient)
 		if err != nil {
 			return
 		}
